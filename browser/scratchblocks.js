@@ -1104,7 +1104,7 @@ function recogniseStuff(scripts) {
  * @parameter options {object}
  * @returns {Document}
  */
-function parse(code, options) {
+ function parse(code, options) {
   options = extend({
     inline: false,
     languages: Object.keys(allLanguages),
@@ -1205,9 +1205,11 @@ function text(x, y, content, props) {
 }
 
 function symbol(href) {
-  return el('use', {
+  var e = el('use', {
     'xlink:href': href,
   });
+  e.setAttributeNS("http://www.w3.org/1999/xlink", "href", href);
+  return e;
 }
 
 function move(dx, dy, el) {
@@ -1751,7 +1753,10 @@ Icon.icons = {
   addInput: { width: 4, height: 8 },
   delInput: { width: 4, height: 8 },
 };
-Icon.prototype.draw = function() {
+Icon.prototype.draw = function(a, measureOnly) {
+  if (measureOnly) {
+    return;
+  }
   return symbol('#' + this.name, {
     width: this.width,
     height: this.height,
@@ -1882,7 +1887,7 @@ Input.shapes = {
   'reporter': roundedRect,
 };
 
-Input.prototype.draw = function(parent) {
+Input.prototype.draw = function(parent, measureOnly) {
   var w;
   if (this.hasLabel) {
     var label = this.label.draw();
@@ -1897,16 +1902,24 @@ Input.prototype.draw = function(parent) {
 
   var el = Input.shapes[this.shape](w, h);
   if (this.isColor) {
-    setProps(el, {
-      fill: this.value,
-    });
-  } else if (this.isDarker) {
-    el = darkRect(w, h, parent.info.category, el);
-    if (parent.info.color) {
+    if (!measureOnly) {
       setProps(el, {
-        fill: parent.info.color,
+        fill: this.value,
       });
     }
+  } else if (this.isDarker) {
+    if (!measureOnly) {
+      el = darkRect(w, h, parent.info.category, el);
+      if (parent.info.color) {
+        setProps(el, {
+          fill: parent.info.color,
+        });
+      }
+    }
+  }
+  
+  if (measureOnly) {
+    return;
   }
 
   var result = group([
@@ -2236,7 +2249,7 @@ Block.padding = {
   null:         [4, 6, 2],
 };
 
-Block.prototype.draw = function() {
+Block.prototype.draw = function(a, measureOnly) {
   var isDefine = this.info.shape === 'define-hat';
   var children = this.children;
 
@@ -2290,7 +2303,7 @@ Block.prototype.draw = function() {
   var lines = [];
   for (i=0; i<children.length; i++) {
     var child = children[i];
-    child.el = child.draw(this);
+    child.el = child.draw(this, measureOnly);
 
     if (child.isScript && this.isCommand) {
       this.hasScript = true;
@@ -2340,7 +2353,9 @@ Block.prototype.draw = function() {
   for (i=0; i<lines.length; i++) {
     var line_ = lines[i];
     if (line_.isScript) {
-      objects.push(move(15, line_.y, line_.el));
+      if (!measureOnly) {
+        objects.push(move(15, line_.y, line_.el)); 
+      }
       continue;
     }
 
@@ -2349,7 +2364,9 @@ Block.prototype.draw = function() {
     for (var j=0; j<line_.children.length; j++) {
       var child_ = line_.children[j];
       if (child_.isArrow) {
-        objects.push(move(innerWidth - 15, this.height - 3, child_.el));
+        if (!measureOnly) {
+          objects.push(move(innerWidth - 15, this.height - 3, child_.el));
+        }
         continue;
       }
 
@@ -2365,10 +2382,15 @@ Block.prototype.draw = function() {
           continue;
         }
       }
-      objects.push(move(px + child_.x, line_.y + y_|0, child_.el));
+      if (!measureOnly) {
+        objects.push(move(px + child_.x, line_.y + y_|0, child_.el));
+      }
     }
   }
-
+  
+  if (measureOnly) {
+    return;
+  }
   var el = this.drawSelf(innerWidth, this.height, lines);
   objects.splice(0, 0, el);
   if (this.info.color) {
@@ -2446,13 +2468,16 @@ Script.prototype.translate = function(lang) {
   });
 };
 
-Script.prototype.draw = function(inside) {
+Script.prototype.draw = function(inside, measureOnly) {
   var children = [];
   var y = 0;
   this.width = 0;
   for (var i=0; i<this.blocks.length; i++) {
     var block = this.blocks[i];
-    children.push(move(inside ? 0 : 2, y, block.draw()));
+    var blockDraw = block.draw(undefined, measureOnly);
+    if (!measureOnly) {
+      children.push(move(inside ? 0 : 2, y, blockDraw));
+    }
     y += block.height;
     this.width = Math.max(this.width, block.width);
 
@@ -2461,14 +2486,19 @@ Script.prototype.draw = function(inside) {
       var line = block.firstLine;
       var cx = block.innerWidth + 2 + Comment.lineLength;
       var cy = y - block.height + (line.height / 2);
-      var el = comment.draw();
-      children.push(move(cx, cy - comment.height / 2, el));
+      var el = comment.draw(measureOnly);
+      if (!measureOnly) {
+        children.push(move(cx, cy - comment.height / 2, el));
+      }
       this.width = Math.max(this.width, cx + comment.width);
     }
   }
   this.height = y;
   if (!inside && !this.isFinal) {
     this.height += 3;
+  }
+  if (measureOnly) {
+    return;
   }
   return group(children);
 };
@@ -2521,7 +2551,7 @@ Document.prototype.translate = function(lang) {
   });
 };
 
-Document.prototype.render = function() {
+Document.prototype.render = function(measureOnly) {
   // render each script
   var width = 0;
   var height = 0;
@@ -2530,12 +2560,19 @@ Document.prototype.render = function() {
     var script = this.scripts[i];
     if (height) height += 10;
     script.y = height;
-    elements.push(move(0, height, script.draw()));
+    var scriptDraw = script.draw(undefined, measureOnly);
+    if (!measureOnly) {
+      elements.push(move(0, height, scriptDraw));
+    }
     height += script.height;
     width = Math.max(width, script.width + 4);
   }
   this.width = width;
   this.height = height;
+  
+  if (measureOnly) {
+    return;
+  }
 
   // return SVG
   var svg = newSVG(width, height);
@@ -2765,6 +2802,98 @@ module.exports.loadLanguages = loadLanguages;
 module.exports.fromJSON = Document.fromJSON;
 module.exports.toJSON = function(doc) { return doc.toJSON(); };
 module.exports.stringify = function(doc) { return doc.stringify(); };
+module.exports.parse_measure = function(code, options) {
+  allLabels = [];
+  var doc = parse(code, options);
+  measureAllLabels();
+  var labels = allLabels.slice();
+  // var docBak = _.cloneDeep(doc);
+  doc.render(true);
+  return {doc: doc, width: doc.width, height: doc.height, labels: labels};
+}
+var isWatching = false;
+var watchers = [];
+function startWatchingScroll() {
+  isWatching = true;
+  window.addEventListener("scroll", _.throttle(function() {
+    for (var i = 0; i < watchers.length; i++) {
+      var watcher = watchers[i];
+      if (isElementInViewport(watcher.el)) {
+        if (watcher.visible) {
+          continue;
+        }
+        if (!watcher.svg) {
+          allLabels = watcher.labels;
+          watcher.svg = watcher.document.render(); // this time render for real
+          delete watcher.document;
+          delete watcher.labels;
+          allLabels.length = 0;
+        }
+        watcher.el.appendChild(watcher.svg); // insert the script
+        watcher.visible = true;
+      } else if (watcher.visible) {
+        watcher.el.removeChild(watcher.el.firstChild); // remove script
+        watcher.visible = false;
+      }
+    }
+  }, 100));
+}
+function readCode(el, options) {
+  options = extend({
+    inline: false,
+  }, options);
+
+  var html = el.innerHTML.replace(/<br>\s?|\n|\r\n|\r/ig, '\n');
+  var pre = document.createElement('pre');
+  pre.innerHTML = html;
+  var code = pre.textContent;
+  if (options.inline) {
+    code = code.replace('\n', '');
+  }
+  return code;
+}
+function isElementInViewport(el) {
+  var rect = el.getBoundingClientRect();
+
+  return (
+    rect.bottom >= 0 && rect.top <= (window.innerHeight || document.documentElement.clientHeight)
+  );
+}
+module.exports.scrollwatch = function(element) {
+  var doc = module.exports.parse_measure(readCode(element));
+  var scratchblocksDiv = document.createElement("div");
+  scratchblocksDiv.className = "scratchblocks";
+  scratchblocksDiv.style.width = doc.width + "px";
+  scratchblocksDiv.style.height = doc.height + "px";
+  // scratchblocksDiv.style.backgroundColor = "red"; // testing
+  while (element.firstChild) {
+      element.removeChild(element.firstChild);
+  }
+  element.appendChild(scratchblocksDiv);
+  var watcher = {
+    document: doc.doc,
+    el: scratchblocksDiv,
+    rendered: false,
+    labels: doc.labels
+  };
+  if (isElementInViewport(scratchblocksDiv)) {
+    allLabels = doc.labels;
+    watcher.svg = doc.doc.render();
+    scratchblocksDiv.appendChild(watcher.svg);
+    delete watcher.document;
+    delete watcher.labels;
+    allLabels.length = 0; // free up memory
+    watcher.visible = true;
+  }
+  watchers.push(watcher);
+  if (!isWatching) {
+    startWatchingScroll();
+  }
+}
+module.exports.parse = parse;
 
 },{"./commands.js":1}]},{},[2])(2)
 });
+
+// scratchblocks.scrollwatch(document.getElementById("test"));
+Array.prototype.forEach.call(document.getElementsByClassName("blocks"), scratchblocks.scrollwatch)
